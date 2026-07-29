@@ -179,23 +179,25 @@ async function initialize() {
     state.app = initializeApp(firebaseConfig);
     state.auth = getAuth(state.app);
     await setPersistence(state.auth, browserLocalPersistence);
-
     state.db = getFirestore(state.app);
 
-    onAuthStateChanged(state.auth, async (user) => {
-      if (!user) {
-        await signInAnonymously(state.auth);
-        return;
-      }
+    // Complete authentication directly during startup.
+    // In v1.1, failures inside onAuthStateChanged could bypass the outer
+    // try/catch and leave the loading spinner visible forever.
+    let user = state.auth.currentUser;
+    if (!user) {
+      const credential = await signInAnonymously(state.auth);
+      user = credential.user;
+    }
 
-      state.user = user;
-      if (state.roomCode) {
-        await restoreRoom();
-      } else {
-        state.restoring = false;
-        showScreen("home");
-      }
-    });
+    state.user = user;
+
+    if (state.roomCode) {
+      await restoreRoom();
+    } else {
+      state.restoring = false;
+      showScreen("home");
+    }
   } catch (error) {
     console.error("Search Party startup failed:", error);
     ui.loadingText.textContent = "The game could not start.";

@@ -1,4 +1,4 @@
-# Search Party v1.1
+# Search Party v1.2
 
 This version is designed to run directly on GitHub Pages without npm, Vite, Webpack, or any other build tool.
 
@@ -114,3 +114,14 @@ https://www.gstatic.com/firebasejs/
 ## Question-bank note
 
 The included questions remain starter content for application testing. Their answer rankings should be verified before the game is presented as using current Google search data.
+
+
+## v1.2 startup fix
+
+Version 1.2 fixes an authentication-startup bug in v1.1. Authentication is now completed directly inside the main startup `try/catch`, so an authentication error will display on screen instead of leaving the spinner running indefinitely.
+
+For an existing v1.1 deployment, replacing only `app.js` is sufficient. Keep your current `firebase-config.js`, because it contains your real Firebase values.
+
+Suggested commit comment:
+
+> Fix Firebase authentication startup hang
