@@ -1,8 +1,3 @@
-// Paste the Firebase configuration object from:
-// Firebase Console → Project settings → General → Your apps → SDK setup and configuration
-//
-// Keep the export statement exactly as shown.
-
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
 // TODO: Add SDKs for Firebase products that you want to use

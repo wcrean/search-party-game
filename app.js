@@ -1,18 +1,18 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { QUESTIONS } from "./questions.js";
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
+// Browser-safe Firebase imports for GitHub Pages.
+// These are full HTTPS URLs, so no npm, Vite, Webpack, or build step is required.
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import {
   getAuth,
   onAuthStateChanged,
   signInAnonymously,
   setPersistence,
   browserLocalPersistence
-} from "https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js";
+} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 import {
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
+  getFirestore,
   doc,
   getDoc,
   setDoc,
@@ -21,11 +21,19 @@ import {
   collection,
   onSnapshot,
   serverTimestamp,
-  runTransaction,
   writeBatch,
   getDocs,
   increment
-} from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
+} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+
+
+window.addEventListener("error", (event) => {
+  console.error("Unhandled page error:", event.error || event.message);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  console.error("Unhandled promise rejection:", event.reason);
+});
 
 const $ = (id) => document.getElementById(id);
 const screens = [...document.querySelectorAll(".screen")];
@@ -36,6 +44,7 @@ const ui = {
   connectionDot: $("connection-dot"),
   offlineBanner: $("offline-banner"),
   loadingText: $("loading-text"),
+  startupDetails: $("startup-details"),
 
   createGameButton: $("create-game-button"),
   showJoinButton: $("show-join-button"),
@@ -155,8 +164,15 @@ function resetLocalRoom() {
 
 async function initialize() {
   try {
-    if (firebaseConfig.apiKey.includes("PASTE_")) {
-      ui.loadingText.textContent = "Add your Firebase configuration in firebase-config.js.";
+    const missingConfig = Object.values(firebaseConfig).some(
+      (value) => !value || String(value).includes("PASTE_")
+    );
+
+    if (missingConfig) {
+      ui.loadingText.textContent = "Firebase setup is incomplete.";
+      ui.startupDetails.textContent =
+        "Open firebase-config.js and replace every PASTE_... value with your Firebase web app configuration.";
+      ui.startupDetails.classList.remove("hidden");
       return;
     }
 
@@ -164,11 +180,7 @@ async function initialize() {
     state.auth = getAuth(state.app);
     await setPersistence(state.auth, browserLocalPersistence);
 
-    state.db = initializeFirestore(state.app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
-      })
-    });
+    state.db = getFirestore(state.app);
 
     onAuthStateChanged(state.auth, async (user) => {
       if (!user) {
@@ -185,8 +197,10 @@ async function initialize() {
       }
     });
   } catch (error) {
-    console.error(error);
-    ui.loadingText.textContent = friendlyError(error);
+    console.error("Search Party startup failed:", error);
+    ui.loadingText.textContent = "The game could not start.";
+    ui.startupDetails.textContent = `${friendlyError(error)}\n\nTechnical detail: ${error?.message || error}`;
+    ui.startupDetails.classList.remove("hidden");
   }
 }
 
