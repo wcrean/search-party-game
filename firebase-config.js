@@ -3,11 +3,20 @@
 //
 // Keep the export statement exactly as shown.
 
-export const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY_HERE",
-  authDomain: "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "PASTE_YOUR_PROJECT_ID",
-  storageBucket: "PASTE_YOUR_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID",
-  appId: "PASTE_YOUR_APP_ID"
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyD5f86Wz10WUaqrISWhe-QH25pvVxhCuhk",
+  authDomain: "search-party-game.firebaseapp.com",
+  projectId: "search-party-game",
+  storageBucket: "search-party-game.firebasestorage.app",
+  messagingSenderId: "892714848487",
+  appId: "1:892714848487:web:c98d84938c76675d5e5242"
 };
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
