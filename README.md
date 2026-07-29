@@ -1,4 +1,4 @@
-# Search Party v1.2
+# Search Party v1.2.1
 
 This version is designed to run directly on GitHub Pages without npm, Vite, Webpack, or any other build tool.
 
@@ -125,3 +125,17 @@ For an existing v1.1 deployment, replacing only `app.js` is sufficient. Keep you
 Suggested commit comment:
 
 > Fix Firebase authentication startup hang
+
+
+## v1.2.1 packaging update
+
+This package contains the complete current file set, including a corrected
+`firebase-config.js` template with no npm-style imports.
+
+For future releases and patches, use the complete ZIP as the source of truth.
+After downloading, copy your real Firebase values into `firebase-config.js`
+before deploying.
+
+Suggested commit comment:
+
+> Package complete Search Party v1.2.1 release files
