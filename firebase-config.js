@@ -1,17 +1,10 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+// Search Party Firebase configuration
 
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyD5f86Wz10WUaqrISWhe-QH25pvVxhCuhk",
-  authDomain: "search-party-game.firebaseapp.com",
-  projectId: "search-party-game",
-  storageBucket: "search-party-game.firebasestorage.app",
-  messagingSenderId: "892714848487",
-  appId: "1:892714848487:web:c98d84938c76675d5e5242"
+export const firebaseConfig = {
+  apiKey: "YOUR_REAL_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "YOUR_REAL_MESSAGING_SENDER_ID",
+  appId: "YOUR_REAL_APP_ID"
 };
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
