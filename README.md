@@ -1,4 +1,4 @@
-# Search Party 2.0
+# Search Party 2.0.1
 
 Search Party 2.0 is a clean rebuild designed to run directly on GitHub Pages.
 
@@ -89,3 +89,14 @@ After the deployment finishes, hard-refresh with **Ctrl+Shift+R** or open the si
 ## Question data
 
 The included question rankings are placeholder content for testing the game mechanics. They should be researched and verified before presenting them as current Google search rankings.
+
+## Version 2.0.1 fixes
+
+- Corrects the join form ID in `index.html`.
+- Corrects both stale `#join-card` references in `app.js`.
+- Shared invitation URLs now open the join form correctly.
+- Includes the complete current file set and populated Firebase configuration.
+
+Suggested commit comment:
+
+> Fix join form handling for shared Search Party invites

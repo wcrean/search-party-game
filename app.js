@@ -277,7 +277,7 @@ async function restoreSavedRoom() {
 
 $("#show-create-button").addEventListener("click", () => showScreen("create"));
 $("#show-join-button").addEventListener("click", () => {
-  $("#join-card").classList.toggle("hidden");
+  $("#join-form").classList.toggle("hidden");
 });
 $("#back-home-button").addEventListener("click", () => showScreen("home"));
 $("#retry-button").addEventListener("click", () => location.reload());
@@ -407,7 +407,7 @@ window.addEventListener("offline", () => $("#offline-banner").classList.remove("
     const roomFromUrl = new URLSearchParams(location.search).get("room");
     if (roomFromUrl && !state.roomCode) {
       $("#join-code").value = roomFromUrl.toUpperCase();
-      $("#join-card").classList.remove("hidden");
+      $("#join-form").classList.remove("hidden");
     }
 
     $("#loading-text").textContent = "Ready.";
