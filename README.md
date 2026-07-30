@@ -1,141 +1,91 @@
-# Search Party v1.2.1
+# Search Party 2.0
 
-This version is designed to run directly on GitHub Pages without npm, Vite, Webpack, or any other build tool.
+Search Party 2.0 is a clean rebuild designed to run directly on GitHub Pages.
 
-## What changed in v1.1
-
-- Replaced package-style Firebase imports with full browser-safe HTTPS imports
-- Pinned the Firebase browser SDK to version 11.10.0
-- Simplified Firestore initialization
-- Added a visible startup diagnostic message
-- Added clearer browser console errors
-- Kept the same multiplayer lobby, question, scoring, and scoreboard flow
-
-## Replace the older files
-
-Upload these files to the root of your GitHub repository and replace the existing copies:
+## Complete release files
 
 - `index.html`
 - `styles.css`
 - `app.js`
+- `firebase-service.js`
 - `firebase-config.js`
 - `questions.js`
 - `firestore.rules`
 - `README.md`
 
+Your actual Firebase web configuration is already included in `firebase-config.js`.
+
+## What changed
+
+- Clean modular architecture
+- Browser-native Firebase CDN imports
+- No npm, Vite, Webpack, or build step
+- Direct anonymous authentication during startup
+- Visible startup error screen
+- Create and join rooms
+- Live player list
+- Multiple-choice rounds
+- Answer tracking
+- Host-controlled reveal
+- Automatic scoring
+- Final scoreboard
+- Shareable room URL
+- Complete current file set
+
+## Deploy
+
+Replace all files in the root of the GitHub repository with the contents of this ZIP.
+
+The repository root should directly show:
+
+```text
+index.html
+styles.css
+app.js
+firebase-service.js
+firebase-config.js
+questions.js
+firestore.rules
+README.md
+```
+
 Suggested commit comment:
 
-> Fix Firebase browser imports and add startup diagnostics
+> Rebuild Search Party with clean Firebase 2.0 architecture
 
-## Add your Firebase configuration
-
-Open `firebase-config.js`.
-
-In Firebase Console, go to:
-
-**Project settings → General → Your apps → SDK setup and configuration**
-
-Paste your actual values into the existing object.
-
-The file must begin with:
-
-```js
-export const firebaseConfig = {
-```
-
-Do not use imports such as:
-
-```js
-import { initializeApp } from "firebase/app";
-```
-
-Those package imports require a build system and will not work directly on GitHub Pages.
-
-## Enable Anonymous Authentication
+## Firebase Authentication
 
 In Firebase Console:
 
-**Build → Authentication → Sign-in method → Anonymous → Enable → Save**
+**Build → Authentication → Sign-in method → Anonymous → Enabled**
 
-## Publish Firestore rules
+## Firestore rules
 
 In Firebase Console:
 
 **Build → Firestore Database → Rules**
 
-Replace the rules shown there with the complete contents of `firestore.rules`, then click **Publish**.
+Replace the editor contents with `firestore.rules`, then click **Publish**.
 
-## Enable GitHub Pages
+## GitHub Pages
 
 In GitHub:
 
 **Settings → Pages → Deploy from a branch → main → /(root) → Save**
 
-## After uploading
+After the deployment finishes, hard-refresh with **Ctrl+Shift+R** or open the site in an incognito window.
 
-GitHub Pages may briefly show the previous version.
+## Test
 
-Use one of these methods:
+1. Open the site on Phone 1 and create a room.
+2. Open the site on Phone 2 and join using the room code.
+3. Confirm both players appear.
+4. Start the game.
+5. Submit answers from both phones.
+6. Reveal the result.
+7. Confirm the scores update.
+8. Complete the rounds and view final results.
 
-- Wait until the latest deployment shows a green check mark under **Actions**
-- Open the site in a private/incognito tab
-- Add `?v=11` to the end of the URL once to bypass an old cached copy
+## Question data
 
-## Confirm the fix
-
-Open the published site on a computer and press:
-
-**F12 → Console**
-
-You should no longer see:
-
-```text
-Failed to resolve module specifier "firebase/app"
-```
-
-The browser should instead load Firebase from URLs beginning with:
-
-```text
-https://www.gstatic.com/firebasejs/
-```
-
-## Test on two phones
-
-1. Open the GitHub Pages site on Phone 1.
-2. Create a game.
-3. Open the same site on Phone 2.
-4. Join with the room code.
-5. Confirm both names appear.
-6. Start the game.
-7. Answer on both phones.
-8. Reveal the answer.
-9. Confirm the scoreboard updates.
-
-## Question-bank note
-
-The included questions remain starter content for application testing. Their answer rankings should be verified before the game is presented as using current Google search data.
-
-
-## v1.2 startup fix
-
-Version 1.2 fixes an authentication-startup bug in v1.1. Authentication is now completed directly inside the main startup `try/catch`, so an authentication error will display on screen instead of leaving the spinner running indefinitely.
-
-For an existing v1.1 deployment, replacing only `app.js` is sufficient. Keep your current `firebase-config.js`, because it contains your real Firebase values.
-
-Suggested commit comment:
-
-> Fix Firebase authentication startup hang
-
-
-## v1.2.1 packaging update
-
-This package contains the complete current file set, including a corrected
-`firebase-config.js` template with no npm-style imports.
-
-For future releases and patches, use the complete ZIP as the source of truth.
-After downloading, copy your real Firebase values into `firebase-config.js`
-before deploying.
-
-Suggested commit comment:
-
-> Package complete Search Party v1.2.1 release files
+The included question rankings are placeholder content for testing the game mechanics. They should be researched and verified before presenting them as current Google search rankings.

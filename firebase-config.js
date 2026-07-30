@@ -1,21 +1,12 @@
 // Search Party Firebase configuration
-//
-// Replace each placeholder below with the exact values from:
-// Firebase Console → Project settings → General → Your apps
-// → SDK setup and configuration
-//
-// IMPORTANT:
-// - This file must contain NO import statements.
-// - Do not call initializeApp() here.
-// - app.js handles Firebase imports and initialization.
-// - It is normal for this client-side configuration to be published
-//   in a GitHub Pages repository.
+// This client-side configuration is intended to be published with the web app.
+// Security is enforced by Firebase Authentication and Firestore Security Rules.
 
 export const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY_HERE",
-  authDomain: "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "PASTE_YOUR_PROJECT_ID",
-  storageBucket: "PASTE_YOUR_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID",
-  appId: "PASTE_YOUR_APP_ID"
+  apiKey: "AIzaSyD5f86Wz10WUaqrISWhe-QH25pvVxhCuhk",
+  authDomain: "search-party-game.firebaseapp.com",
+  projectId: "search-party-game",
+  storageBucket: "search-party-game.firebasestorage.app",
+  messagingSenderId: "892714848487",
+  appId: "1:892714848487:web:c98d84938c76675d5e5242"
 };

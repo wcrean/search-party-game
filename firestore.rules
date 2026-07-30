@@ -2,69 +2,54 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
     function signedIn() {
       return request.auth != null;
     }
 
-    function gameExists(gameId) {
-      return exists(/databases/$(database)/documents/games/$(gameId));
+    function roomExists(roomCode) {
+      return exists(/databases/$(database)/documents/rooms/$(roomCode));
     }
 
-    function game(gameId) {
-      return get(/databases/$(database)/documents/games/$(gameId)).data;
+    function room(roomCode) {
+      return get(/databases/$(database)/documents/rooms/$(roomCode)).data;
     }
 
-    function isHost(gameId) {
-      return signedIn() && game(gameId).hostId == request.auth.uid;
+    function isHost(roomCode) {
+      return signedIn() && room(roomCode).hostId == request.auth.uid;
     }
 
-    function isPlayer(gameId) {
-      return signedIn()
-        && exists(/databases/$(database)/documents/games/$(gameId)/players/$(request.auth.uid));
-    }
-
-    match /games/{gameId} {
+    match /rooms/{roomCode} {
       allow create: if signedIn()
         && request.resource.data.hostId == request.auth.uid
         && request.resource.data.status == "lobby";
 
       allow read: if signedIn();
 
-      allow update, delete: if isHost(gameId);
+      allow update, delete: if isHost(roomCode);
 
       match /players/{playerId} {
-        allow read: if signedIn() && gameExists(gameId);
+        allow read: if signedIn() && roomExists(roomCode);
 
         allow create: if signedIn()
-          && playerId == request.auth.uid
-          && game(gameId).status == "lobby"
-          && request.resource.data.score == 0;
+          && request.auth.uid == playerId
+          && roomExists(roomCode);
 
-        allow update: if isHost(gameId)
-          || (
-            signedIn()
-            && playerId == request.auth.uid
-            && request.resource.data.score == resource.data.score
-            && request.resource.data.isHost == resource.data.isHost
-          );
+        allow update: if signedIn() && (
+          request.auth.uid == playerId ||
+          isHost(roomCode)
+        );
 
-        allow delete: if isHost(gameId)
-          || (signedIn() && playerId == request.auth.uid);
+        allow delete: if isHost(roomCode);
       }
 
       match /rounds/{roundId}/answers/{playerId} {
-        allow read: if isPlayer(gameId);
+        allow read: if signedIn() && roomExists(roomCode);
 
-        allow create, update: if isPlayer(gameId)
-          && playerId == request.auth.uid
-          && game(gameId).status == "question"
-          && request.resource.data.playerId == request.auth.uid
-          && request.resource.data.choiceIndex is int
-          && request.resource.data.choiceIndex >= 0
-          && request.resource.data.choiceIndex <= 3;
+        allow create, update: if signedIn()
+          && request.auth.uid == playerId
+          && roomExists(roomCode);
 
-        allow delete: if isHost(gameId);
+        allow delete: if isHost(roomCode);
       }
     }
   }

@@ -1,764 +1,419 @@
-import { firebaseConfig } from "./firebase-config.js";
 import { QUESTIONS } from "./questions.js";
-
-// Browser-safe Firebase imports for GitHub Pages.
-// These are full HTTPS URLs, so no npm, Vite, Webpack, or build step is required.
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import {
-  getAuth,
-  onAuthStateChanged,
-  signInAnonymously,
-  setPersistence,
-  browserLocalPersistence
-} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  collection,
-  onSnapshot,
-  serverTimestamp,
-  writeBatch,
-  getDocs,
-  increment
-} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+  initializeFirebase,
+  getCurrentUser,
+  createRoom,
+  joinRoom,
+  subscribeToRoom,
+  subscribeToPlayers,
+  subscribeToAnswers,
+  startGame,
+  submitAnswer,
+  revealRound,
+  nextRound,
+  resetGame,
+  deleteRoom
+} from "./firebase-service.js";
 
-
-window.addEventListener("error", (event) => {
-  console.error("Unhandled page error:", event.error || event.message);
-});
-
-window.addEventListener("unhandledrejection", (event) => {
-  console.error("Unhandled promise rejection:", event.reason);
-});
-
-const $ = (id) => document.getElementById(id);
-const screens = [...document.querySelectorAll(".screen")];
-
-const ui = {
-  roomLabel: $("room-label"),
-  homeButton: $("home-button"),
-  connectionDot: $("connection-dot"),
-  offlineBanner: $("offline-banner"),
-  loadingText: $("loading-text"),
-  startupDetails: $("startup-details"),
-
-  createGameButton: $("create-game-button"),
-  showJoinButton: $("show-join-button"),
-  joinForm: $("join-form"),
-  joinName: $("join-name"),
-  joinCode: $("join-code"),
-  homeError: $("home-error"),
-
-  createForm: $("create-form"),
-  hostName: $("host-name"),
-  roundCount: $("round-count"),
-  createError: $("create-error"),
-
-  roomCode: $("room-code"),
-  shareRoomButton: $("share-room-button"),
-  playerCount: $("player-count"),
-  playerList: $("player-list"),
-  hostLobbyControls: $("host-lobby-controls"),
-  startGameButton: $("start-game-button"),
-  deleteRoomButton: $("delete-room-button"),
-  lobbyStatus: $("lobby-status"),
-  lobbyError: $("lobby-error"),
-
-  roundProgress: $("round-progress"),
-  answerProgress: $("answer-progress"),
-  questionStem: $("question-stem"),
-  choiceList: $("choice-list"),
-  submittedPanel: $("submitted-panel"),
-  hostQuestionControls: $("host-question-controls"),
-  revealButton: $("reveal-button"),
-  questionError: $("question-error"),
-
-  revealAnswer: $("reveal-answer"),
-  revealNote: $("reveal-note"),
-  voteResults: $("vote-results"),
-  scoreboard: $("scoreboard"),
-  hostRevealControls: $("host-reveal-controls"),
-  nextRoundButton: $("next-round-button"),
-  revealStatus: $("reveal-status"),
-
-  winnerText: $("winner-text"),
-  finalScoreboard: $("final-scoreboard"),
-  hostFinalControls: $("host-final-controls"),
-  playAgainButton: $("play-again-button"),
-  finishRoomButton: $("finish-room-button"),
-  leaveGameButton: $("leave-game-button")
-};
+const $ = selector => document.querySelector(selector);
+const $$ = selector => [...document.querySelectorAll(selector)];
 
 const state = {
-  app: null,
-  auth: null,
-  db: null,
-  user: null,
   roomCode: localStorage.getItem("searchPartyRoom") || "",
-  nickname: localStorage.getItem("searchPartyName") || "",
-  game: null,
+  room: null,
   players: [],
   answers: [],
   isHost: false,
   selectedChoice: null,
-  unsubs: [],
-  restoring: true
+  unsubscribers: []
+};
+
+const screens = {
+  loading: $("#screen-loading"),
+  home: $("#screen-home"),
+  create: $("#screen-create"),
+  lobby: $("#screen-lobby"),
+  question: $("#screen-question"),
+  reveal: $("#screen-reveal"),
+  finished: $("#screen-finished"),
+  error: $("#screen-error")
 };
 
 function showScreen(name) {
-  screens.forEach((screen) => screen.classList.toggle("active", screen.id === `screen-${name}`));
+  Object.entries(screens).forEach(([key, element]) => {
+    element.classList.toggle("active", key === name);
+  });
 }
 
-function setError(element, message = "") {
-  element.textContent = message;
+function setError(message, technical = "") {
+  $("#error-message").textContent = message;
+  $("#error-details").textContent = technical;
+  showScreen("error");
 }
 
-function normalizeRoomCode(value) {
-  return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5);
+function friendlyError(error) {
+  const code = error?.code || "";
+  if (code.includes("auth/operation-not-allowed")) {
+    return "Anonymous sign-in is not enabled in Firebase Authentication.";
+  }
+  if (code.includes("permission-denied")) {
+    return "Firestore denied access. Publish the included firestore.rules file.";
+  }
+  if (code.includes("network-request-failed")) {
+    return "Firebase could not be reached. Check your internet connection.";
+  }
+  return error?.message || "An unexpected error occurred.";
 }
 
-function randomCode(length = 5) {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(length));
-  return [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
+function randomCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
 function shuffledQuestionIds(count) {
-  const ids = QUESTIONS.map((q) => q.id);
-  for (let i = ids.length - 1; i > 0; i--) {
-    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
-    [ids[i], ids[j]] = [ids[j], ids[i]];
-  }
-  return ids.slice(0, Math.min(count, ids.length));
+  return [...QUESTIONS]
+    .sort(() => Math.random() - 0.5)
+    .slice(0, count)
+    .map(question => question.id);
 }
 
 function currentQuestion() {
-  if (!state.game?.questionIds?.length) return null;
-  const id = state.game.questionIds[state.game.currentRound];
-  return QUESTIONS.find((q) => q.id === id) || null;
+  if (!state.room) return null;
+  const id = state.room.questionIds?.[state.room.roundIndex];
+  return QUESTIONS.find(question => question.id === id) || null;
 }
 
-function clearSubscriptions() {
-  state.unsubs.forEach((unsub) => {
-    try { unsub(); } catch (_) {}
-  });
-  state.unsubs = [];
-}
-
-function resetLocalRoom() {
-  clearSubscriptions();
-  state.roomCode = "";
-  state.game = null;
-  state.players = [];
-  state.answers = [];
-  state.isHost = false;
-  state.selectedChoice = null;
-  localStorage.removeItem("searchPartyRoom");
-  ui.roomLabel.textContent = "";
-  ui.homeButton.classList.add("hidden");
-}
-
-async function initialize() {
-  try {
-    const missingConfig = Object.values(firebaseConfig).some(
-      (value) => !value || String(value).includes("PASTE_")
-    );
-
-    if (missingConfig) {
-      ui.loadingText.textContent = "Firebase setup is incomplete.";
-      ui.startupDetails.textContent =
-        "Open firebase-config.js and replace every PASTE_... value with your Firebase web app configuration.";
-      ui.startupDetails.classList.remove("hidden");
-      return;
-    }
-
-    state.app = initializeApp(firebaseConfig);
-    state.auth = getAuth(state.app);
-    await setPersistence(state.auth, browserLocalPersistence);
-    state.db = getFirestore(state.app);
-
-    // Complete authentication directly during startup.
-    // In v1.1, failures inside onAuthStateChanged could bypass the outer
-    // try/catch and leave the loading spinner visible forever.
-    let user = state.auth.currentUser;
-    if (!user) {
-      const credential = await signInAnonymously(state.auth);
-      user = credential.user;
-    }
-
-    state.user = user;
-
-    if (state.roomCode) {
-      await restoreRoom();
-    } else {
-      state.restoring = false;
-      showScreen("home");
-    }
-  } catch (error) {
-    console.error("Search Party startup failed:", error);
-    ui.loadingText.textContent = "The game could not start.";
-    ui.startupDetails.textContent = `${friendlyError(error)}\n\nTechnical detail: ${error?.message || error}`;
-    ui.startupDetails.classList.remove("hidden");
-  }
-}
-
-async function restoreRoom() {
-  try {
-    const gameRef = doc(state.db, "games", state.roomCode);
-    const playerRef = doc(state.db, "games", state.roomCode, "players", state.user.uid);
-    const [gameSnap, playerSnap] = await Promise.all([getDoc(gameRef), getDoc(playerRef)]);
-
-    if (!gameSnap.exists() || !playerSnap.exists()) {
-      resetLocalRoom();
-      showScreen("home");
-      return;
-    }
-
-    subscribeToRoom(state.roomCode);
-  } catch (error) {
-    console.error(error);
-    ui.loadingText.textContent = "Could not restore the room. Check your connection.";
-  } finally {
-    state.restoring = false;
-  }
-}
-
-function subscribeToRoom(code) {
-  clearSubscriptions();
+function saveRoom(code) {
   state.roomCode = code;
   localStorage.setItem("searchPartyRoom", code);
-  ui.roomLabel.textContent = `Room ${code}`;
-  ui.homeButton.classList.remove("hidden");
+}
 
-  const gameRef = doc(state.db, "games", code);
-  const playersRef = collection(state.db, "games", code, "players");
+function leaveRoom() {
+  state.unsubscribers.forEach(unsubscribe => unsubscribe?.());
+  state.unsubscribers = [];
+  state.roomCode = "";
+  state.room = null;
+  state.players = [];
+  state.answers = [];
+  state.selectedChoice = null;
+  localStorage.removeItem("searchPartyRoom");
+  $("#room-label").textContent = "";
+  showScreen("home");
+}
 
-  state.unsubs.push(onSnapshot(gameRef, (snapshot) => {
-    if (!snapshot.exists()) {
-      resetLocalRoom();
-      showScreen("home");
-      setError(ui.homeError, "That room has ended.");
+function subscribe(code) {
+  state.unsubscribers.forEach(unsubscribe => unsubscribe?.());
+  state.unsubscribers = [];
+
+  const roomUnsub = subscribeToRoom(code, room => {
+    if (!room) {
+      leaveRoom();
       return;
     }
 
-    state.game = { id: snapshot.id, ...snapshot.data() };
-    state.isHost = state.game.hostId === state.user.uid;
-    renderGame();
-    subscribeToAnswersForCurrentQuestion();
-  }, handleRoomListenerError));
+    state.room = room;
+    state.isHost = room.hostId === getCurrentUser().uid;
+    $("#room-label").textContent = `Room ${code}`;
+    routeRoom();
+  }, error => setError(friendlyError(error), error?.message));
 
-  state.unsubs.push(onSnapshot(playersRef, (snapshot) => {
-    state.players = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const playerUnsub = subscribeToPlayers(code, players => {
+    state.players = players;
     renderPlayers();
-    renderScoreboards();
-    updateAnswerProgress();
-  }, handleRoomListenerError));
+    renderScoreboard();
+  }, error => setError(friendlyError(error), error?.message));
+
+  state.unsubscribers.push(roomUnsub, playerUnsub);
 }
 
-let answerUnsub = null;
-let subscribedQuestionKey = "";
+function routeRoom() {
+  if (!state.room) return;
 
-function subscribeToAnswersForCurrentQuestion() {
-  const question = currentQuestion();
-  if (!question || !state.roomCode) return;
-
-  const key = `${state.roomCode}:${question.id}`;
-  if (key === subscribedQuestionKey) return;
-
-  if (answerUnsub) answerUnsub();
-  subscribedQuestionKey = key;
-
-  const answersRef = collection(state.db, "games", state.roomCode, "rounds", question.id, "answers");
-  answerUnsub = onSnapshot(answersRef, (snapshot) => {
-    state.answers = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-    const mine = state.answers.find((a) => a.playerId === state.user.uid);
-    state.selectedChoice = mine?.choiceIndex ?? null;
-    renderChoices();
-    updateAnswerProgress();
-    renderVoteResults();
-  }, handleRoomListenerError);
-
-  state.unsubs.push(() => {
-    if (answerUnsub) answerUnsub();
-    answerUnsub = null;
-    subscribedQuestionKey = "";
-  });
-}
-
-function handleRoomListenerError(error) {
-  console.error(error);
-  const message = friendlyError(error);
-  setError(ui.lobbyError, message);
-  setError(ui.questionError, message);
-}
-
-function renderGame() {
-  if (!state.game) return;
-
-  const status = state.game.status;
+  const status = state.room.status;
   if (status === "lobby") {
-    showScreen("lobby");
     renderLobby();
+    showScreen("lobby");
   } else if (status === "question") {
-    showScreen("question");
     renderQuestion();
+    showScreen("question");
   } else if (status === "reveal") {
-    showScreen("reveal");
     renderReveal();
-  } else if (status === "final") {
-    showScreen("final");
-    renderFinal();
+    showScreen("reveal");
+  } else if (status === "finished") {
+    renderFinished();
+    showScreen("finished");
   }
-}
-
-function renderLobby() {
-  ui.roomCode.textContent = state.roomCode;
-  ui.hostLobbyControls.classList.toggle("hidden", !state.isHost);
-  ui.lobbyStatus.textContent = state.isHost
-    ? "Start whenever everyone has joined."
-    : "Waiting for the host to start…";
-  ui.startGameButton.disabled = state.players.length < 2;
 }
 
 function renderPlayers() {
-  ui.playerCount.textContent = state.players.length;
-  const sorted = [...state.players].sort((a, b) => {
-    if (a.isHost !== b.isHost) return a.isHost ? -1 : 1;
-    return (a.name || "").localeCompare(b.name || "");
-  });
-
-  ui.playerList.innerHTML = sorted.map((player) => `
-    <div class="player-row ${player.id === state.user?.uid ? "me" : ""}">
-      <div>
-        <strong>${escapeHtml(player.name || "Player")}</strong>
-        ${player.isHost ? '<span class="host-tag">HOST</span>' : ""}
-      </div>
-      <span>${player.score || 0} pts</span>
+  const html = state.players.map(player => `
+    <div class="player-row">
+      <span>${escapeHtml(player.name)}${player.isHost ? " 👑" : ""}</span>
+      <strong>${player.score ?? 0}</strong>
     </div>
   `).join("");
+
+  $("#player-list").innerHTML = html || '<p class="muted">No players yet.</p>';
+  $("#player-count").textContent = String(state.players.length);
+}
+
+function renderLobby() {
+  $("#room-code").textContent = state.roomCode;
+  $("#host-lobby-controls").classList.toggle("hidden", !state.isHost);
+  $("#lobby-status").textContent = state.isHost
+    ? "Share the room code, then start when everyone has joined."
+    : "Waiting for the host to start the game.";
+}
+
+function resetAnswerSubscription() {
+  const answerUnsub = state.unsubscribers.pop();
+  if (state.unsubscribers.length > 1) answerUnsub?.();
+
+  const unsubscribe = subscribeToAnswers(
+    state.roomCode,
+    state.room.roundIndex,
+    answers => {
+      state.answers = answers;
+      $("#answer-progress").textContent = `${answers.length} answered`;
+      renderRevealVotes();
+    },
+    error => setError(friendlyError(error), error?.message)
+  );
+  state.unsubscribers.push(unsubscribe);
 }
 
 function renderQuestion() {
   const question = currentQuestion();
-  if (!question) return;
+  if (!question) {
+    setError("The question could not be loaded.");
+    return;
+  }
 
-  ui.roundProgress.textContent = `Round ${state.game.currentRound + 1} of ${state.game.questionIds.length}`;
-  ui.questionStem.textContent = question.stem;
-  ui.hostQuestionControls.classList.toggle("hidden", !state.isHost);
-  renderChoices();
-  updateAnswerProgress();
-}
-
-function renderChoices() {
-  const question = currentQuestion();
-  if (!question) return;
-
-  ui.choiceList.innerHTML = question.choices.map((choice, index) => `
-    <button class="choice-button ${state.selectedChoice === index ? "selected" : ""}"
-            data-choice-index="${index}"
-            ${state.game?.status !== "question" ? "disabled" : ""}>
-      ${String.fromCharCode(65 + index)}. ${escapeHtml(choice)}
+  state.selectedChoice = null;
+  $("#round-progress").textContent =
+    `Round ${state.room.roundIndex + 1} of ${state.room.roundCount}`;
+  $("#question-stem").textContent = question.stem;
+  $("#choice-list").innerHTML = question.choices.map((choice, index) => `
+    <button class="choice-button" data-choice="${index}">
+      <span class="choice-letter">${String.fromCharCode(65 + index)}</span>
+      <span>${escapeHtml(choice)}</span>
     </button>
   `).join("");
 
-  ui.choiceList.querySelectorAll(".choice-button").forEach((button) => {
-    button.addEventListener("click", () => submitAnswer(Number(button.dataset.choiceIndex)));
-  });
-
-  ui.submittedPanel.classList.toggle("hidden", state.selectedChoice === null);
-}
-
-function updateAnswerProgress() {
-  if (!state.game || state.game.status !== "question") return;
-  const activePlayers = state.players.length;
-  const submitted = new Set(state.answers.map((a) => a.playerId)).size;
-  ui.answerProgress.textContent = `${submitted} of ${activePlayers} answered`;
-  ui.revealButton.disabled = submitted === 0;
+  $("#host-question-controls").classList.toggle("hidden", !state.isHost);
+  $("#submitted-panel").classList.add("hidden");
+  resetAnswerSubscription();
 }
 
 function renderReveal() {
   const question = currentQuestion();
   if (!question) return;
 
-  ui.revealAnswer.textContent = question.choices[question.correctIndex];
-  ui.revealNote.textContent = question.sourceNote || "";
-  ui.hostRevealControls.classList.toggle("hidden", !state.isHost);
-  ui.revealStatus.textContent = state.isHost ? "Continue when the group is ready." : "Waiting for the host…";
-
-  const lastRound = state.game.currentRound >= state.game.questionIds.length - 1;
-  ui.nextRoundButton.textContent = lastRound ? "Show Final Results" : "Next Round";
-
-  renderVoteResults();
-  renderScoreboards();
+  $("#reveal-answer").textContent = question.choices[question.correctIndex];
+  $("#reveal-note").textContent = question.note;
+  $("#host-reveal-controls").classList.toggle("hidden", !state.isHost);
+  $("#next-round-button").textContent =
+    state.room.roundIndex + 1 >= state.room.roundCount ? "Show Final Results" : "Next Round";
+  renderRevealVotes();
+  renderScoreboard();
 }
 
-function renderVoteResults() {
+function renderRevealVotes() {
+  const container = $("#vote-results");
+  if (!state.room || !container) return;
   const question = currentQuestion();
-  if (!question || state.game?.status !== "reveal") return;
+  if (!question) return;
 
   const counts = question.choices.map((_, index) =>
-    state.answers.filter((a) => a.choiceIndex === index).length
+    state.answers.filter(answer => answer.choiceIndex === index).length
   );
-  const max = Math.max(1, ...counts);
 
-  ui.voteResults.innerHTML = question.choices.map((choice, index) => `
-    <div class="vote-row ${index === question.correctIndex ? "correct" : ""}">
-      <strong>${escapeHtml(choice)}${index === question.correctIndex ? " ✓" : ""}</strong>
-      <span>${counts[index]} vote${counts[index] === 1 ? "" : "s"}</span>
-      <div class="vote-meter"><span style="width:${(counts[index] / max) * 100}%"></span></div>
+  container.innerHTML = question.choices.map((choice, index) => `
+    <div class="result-row ${index === question.correctIndex ? "correct" : ""}">
+      <span>${escapeHtml(choice)}</span>
+      <strong>${counts[index]}</strong>
     </div>
   `).join("");
 }
 
-function renderScoreboards() {
-  const sorted = [...state.players].sort((a, b) => {
-    const scoreDiff = (b.score || 0) - (a.score || 0);
-    return scoreDiff || (a.name || "").localeCompare(b.name || "");
-  });
-
-  const rows = sorted.map((player, index) => `
-    <div class="score-row ${player.id === state.user?.uid ? "me" : ""}">
-      <div>
-        <span class="score-rank">${index + 1}</span>
-        <strong>${escapeHtml(player.name || "Player")}</strong>
-      </div>
-      <span class="score-points">${player.score || 0} pts</span>
+function renderScoreboard() {
+  const html = state.players.map((player, index) => `
+    <div class="score-row">
+      <span><strong>${index + 1}.</strong> ${escapeHtml(player.name)}</span>
+      <strong>${player.score ?? 0}</strong>
     </div>
   `).join("");
 
-  ui.scoreboard.innerHTML = rows;
-  ui.finalScoreboard.innerHTML = rows;
+  $("#scoreboard").innerHTML = html;
+  $("#final-scoreboard").innerHTML = html;
 }
 
-function renderFinal() {
-  ui.hostFinalControls.classList.toggle("hidden", !state.isHost);
-  renderScoreboards();
-
-  const sorted = [...state.players].sort((a, b) => (b.score || 0) - (a.score || 0));
-  if (!sorted.length) {
-    ui.winnerText.textContent = "Game over!";
-    return;
-  }
-
-  const topScore = sorted[0].score || 0;
-  const winners = sorted.filter((p) => (p.score || 0) === topScore);
-  ui.winnerText.textContent = winners.length === 1
-    ? `${winners[0].name} wins!`
-    : `${winners.map((w) => w.name).join(" & ")} tie!`;
-}
-
-async function createRoom(name, roundCount) {
-  const cleanName = name.trim();
-  if (!cleanName) throw new Error("Enter a nickname.");
-
-  let code = "";
-  let gameRef = null;
-
-  for (let attempt = 0; attempt < 8; attempt++) {
-    code = randomCode();
-    gameRef = doc(state.db, "games", code);
-    const snap = await getDoc(gameRef);
-    if (!snap.exists()) break;
-    code = "";
-  }
-
-  if (!code || !gameRef) throw new Error("Could not generate a room code. Try again.");
-
-  const questionIds = shuffledQuestionIds(roundCount);
-  const batch = writeBatch(state.db);
-
-  batch.set(gameRef, {
-    hostId: state.user.uid,
-    status: "lobby",
-    currentRound: 0,
-    questionIds,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
-  });
-
-  batch.set(doc(state.db, "games", code, "players", state.user.uid), {
-    name: cleanName,
-    score: 0,
-    isHost: true,
-    joinedAt: serverTimestamp()
-  });
-
-  await batch.commit();
-
-  state.nickname = cleanName;
-  localStorage.setItem("searchPartyName", cleanName);
-  subscribeToRoom(code);
-}
-
-async function joinRoom(code, name) {
-  const cleanCode = normalizeRoomCode(code);
-  const cleanName = name.trim();
-
-  if (cleanCode.length !== 5) throw new Error("Enter the five-character room code.");
-  if (!cleanName) throw new Error("Enter a nickname.");
-
-  const gameRef = doc(state.db, "games", cleanCode);
-  const gameSnap = await getDoc(gameRef);
-
-  if (!gameSnap.exists()) throw new Error("Room not found. Check the code.");
-  if (gameSnap.data().status !== "lobby") throw new Error("That game has already started.");
-
-  await setDoc(doc(state.db, "games", cleanCode, "players", state.user.uid), {
-    name: cleanName,
-    score: 0,
-    isHost: gameSnap.data().hostId === state.user.uid,
-    joinedAt: serverTimestamp()
-  }, { merge: true });
-
-  state.nickname = cleanName;
-  localStorage.setItem("searchPartyName", cleanName);
-  subscribeToRoom(cleanCode);
-}
-
-async function submitAnswer(choiceIndex) {
-  if (!state.game || state.game.status !== "question") return;
-  const question = currentQuestion();
-  if (!question) return;
-
-  try {
-    state.selectedChoice = choiceIndex;
-    renderChoices();
-
-    const answerRef = doc(
-      state.db,
-      "games",
-      state.roomCode,
-      "rounds",
-      question.id,
-      "answers",
-      state.user.uid
-    );
-
-    await setDoc(answerRef, {
-      playerId: state.user.uid,
-      choiceIndex,
-      submittedAt: serverTimestamp()
-    });
-  } catch (error) {
-    console.error(error);
-    setError(ui.questionError, friendlyError(error));
-  }
-}
-
-async function startGame() {
-  if (!state.isHost) return;
-  await updateDoc(doc(state.db, "games", state.roomCode), {
-    status: "question",
-    currentRound: 0,
-    updatedAt: serverTimestamp()
-  });
-}
-
-async function revealAnswer() {
-  if (!state.isHost) return;
-  const question = currentQuestion();
-  if (!question) return;
-
-  ui.revealButton.disabled = true;
-  setError(ui.questionError);
-
-  try {
-    const gameRef = doc(state.db, "games", state.roomCode);
-    const playersRef = collection(state.db, "games", state.roomCode, "players");
-    const answersRef = collection(state.db, "games", state.roomCode, "rounds", question.id, "answers");
-    const [playersSnap, answersSnap] = await Promise.all([getDocs(playersRef), getDocs(answersRef)]);
-
-    const correctPlayerIds = new Set(
-      answersSnap.docs
-        .map((d) => d.data())
-        .filter((answer) => answer.choiceIndex === question.correctIndex)
-        .map((answer) => answer.playerId)
-    );
-
-    const batch = writeBatch(state.db);
-    playersSnap.docs.forEach((playerDoc) => {
-      if (correctPlayerIds.has(playerDoc.id)) {
-        batch.update(playerDoc.ref, { score: increment(3) });
-      }
-    });
-
-    batch.update(gameRef, {
-      status: "reveal",
-      updatedAt: serverTimestamp()
-    });
-
-    await batch.commit();
-  } catch (error) {
-    console.error(error);
-    setError(ui.questionError, friendlyError(error));
-    ui.revealButton.disabled = false;
-  }
-}
-
-async function nextRound() {
-  if (!state.isHost) return;
-  const lastRound = state.game.currentRound >= state.game.questionIds.length - 1;
-
-  await updateDoc(doc(state.db, "games", state.roomCode), {
-    status: lastRound ? "final" : "question",
-    currentRound: lastRound ? state.game.currentRound : state.game.currentRound + 1,
-    updatedAt: serverTimestamp()
-  });
-}
-
-async function playAgain() {
-  if (!state.isHost) return;
-
-  const playersRef = collection(state.db, "games", state.roomCode, "players");
-  const playersSnap = await getDocs(playersRef);
-  const batch = writeBatch(state.db);
-
-  playersSnap.docs.forEach((playerDoc) => batch.update(playerDoc.ref, { score: 0 }));
-
-  batch.update(doc(state.db, "games", state.roomCode), {
-    status: "lobby",
-    currentRound: 0,
-    questionIds: shuffledQuestionIds(state.game.questionIds.length),
-    updatedAt: serverTimestamp()
-  });
-
-  await batch.commit();
-}
-
-async function endRoom() {
-  if (!state.isHost) return;
-  const confirmed = confirm("End this room for everyone?");
-  if (!confirmed) return;
-
-  await deleteDoc(doc(state.db, "games", state.roomCode));
-  resetLocalRoom();
-  showScreen("home");
-}
-
-function leaveGame() {
-  resetLocalRoom();
-  showScreen("home");
-}
-
-async function shareRoom() {
-  const url = `${location.origin}${location.pathname}?room=${state.roomCode}`;
-  const text = `Join my Search Party game. Room code: ${state.roomCode}`;
-
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: "Search Party", text, url });
-    } else {
-      await navigator.clipboard.writeText(`${text}\n${url}`);
-      ui.shareRoomButton.textContent = "Invite copied!";
-      setTimeout(() => { ui.shareRoomButton.textContent = "Share Invite"; }, 1600);
-    }
-  } catch (error) {
-    if (error.name !== "AbortError") console.error(error);
-  }
-}
-
-function friendlyError(error) {
-  const code = error?.code || "";
-  if (code.includes("permission-denied")) return "Firebase blocked this action. Publish the included Firestore rules.";
-  if (code.includes("network-request-failed") || code.includes("unavailable")) return "Connection lost. Try again when service returns.";
-  if (code.includes("operation-not-allowed")) return "Enable Anonymous sign-in in Firebase Authentication.";
-  return error?.message || "Something went wrong. Please try again.";
+function renderFinished() {
+  renderScoreboard();
+  const winner = state.players[0];
+  $("#winner-text").textContent = winner
+    ? `${winner.name} wins with ${winner.score ?? 0} points!`
+    : "Game over!";
+  $("#host-final-controls").classList.toggle("hidden", !state.isHost);
 }
 
 function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return String(value).replace(/[&<>"']/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  })[character]);
 }
 
-ui.createGameButton.addEventListener("click", () => {
-  ui.hostName.value = state.nickname;
-  showScreen("create");
-});
-
-ui.showJoinButton.addEventListener("click", () => {
-  ui.joinForm.classList.remove("hidden");
-  ui.joinName.value = state.nickname;
-  ui.joinName.focus();
-});
-
-ui.joinCode.addEventListener("input", () => {
-  ui.joinCode.value = normalizeRoomCode(ui.joinCode.value);
-});
-
-ui.createForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  setError(ui.createError);
-  showScreen("loading");
-  ui.loadingText.textContent = "Creating room…";
-
-  try {
-    await createRoom(ui.hostName.value, Number(ui.roundCount.value));
-  } catch (error) {
-    console.error(error);
-    showScreen("create");
-    setError(ui.createError, friendlyError(error));
-  }
-});
-
-ui.joinForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  setError(ui.homeError);
-  showScreen("loading");
-  ui.loadingText.textContent = "Joining room…";
-
-  try {
-    await joinRoom(ui.joinCode.value, ui.joinName.value);
-  } catch (error) {
-    console.error(error);
+async function restoreSavedRoom() {
+  if (!state.roomCode) {
     showScreen("home");
-    ui.joinForm.classList.remove("hidden");
-    setError(ui.homeError, friendlyError(error));
+    return;
   }
-});
-
-ui.startGameButton.addEventListener("click", () => startGame().catch((e) => setError(ui.lobbyError, friendlyError(e))));
-ui.revealButton.addEventListener("click", () => revealAnswer());
-ui.nextRoundButton.addEventListener("click", () => nextRound().catch((e) => setError(ui.questionError, friendlyError(e))));
-ui.playAgainButton.addEventListener("click", () => playAgain().catch(console.error));
-ui.deleteRoomButton.addEventListener("click", () => endRoom().catch(console.error));
-ui.finishRoomButton.addEventListener("click", () => endRoom().catch(console.error));
-ui.leaveGameButton.addEventListener("click", leaveGame);
-ui.shareRoomButton.addEventListener("click", shareRoom);
-ui.homeButton.addEventListener("click", () => {
-  if (state.roomCode) {
-    const leave = confirm("Leave this game on this phone?");
-    if (!leave) return;
-  }
-  leaveGame();
-});
-
-window.addEventListener("online", () => {
-  ui.offlineBanner.classList.add("hidden");
-  ui.connectionDot.classList.add("online");
-  ui.connectionDot.classList.remove("offline");
-});
-
-window.addEventListener("offline", () => {
-  ui.offlineBanner.classList.remove("hidden");
-  ui.connectionDot.classList.add("offline");
-  ui.connectionDot.classList.remove("online");
-});
-
-const urlRoom = normalizeRoomCode(new URLSearchParams(location.search).get("room") || "");
-if (urlRoom) {
-  ui.joinForm.classList.remove("hidden");
-  ui.joinCode.value = urlRoom;
+  subscribe(state.roomCode);
 }
 
-ui.connectionDot.classList.add(navigator.onLine ? "online" : "offline");
-if (!navigator.onLine) ui.offlineBanner.classList.remove("hidden");
+$("#show-create-button").addEventListener("click", () => showScreen("create"));
+$("#show-join-button").addEventListener("click", () => {
+  $("#join-card").classList.toggle("hidden");
+});
+$("#back-home-button").addEventListener("click", () => showScreen("home"));
+$("#retry-button").addEventListener("click", () => location.reload());
+$("#leave-game-button").addEventListener("click", leaveRoom);
 
-initialize();
+$("#create-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const hostName = $("#host-name").value.trim();
+  const roundCount = Number($("#round-count").value);
+  const button = event.submitter;
+  button.disabled = true;
+
+  try {
+    let code;
+    let attempts = 0;
+    while (attempts < 5) {
+      code = randomCode();
+      try {
+        await createRoom({
+          code,
+          hostName,
+          roundCount,
+          questionIds: shuffledQuestionIds(roundCount)
+        });
+        break;
+      } catch (error) {
+        if (!error.message.includes("already in use")) throw error;
+      }
+      attempts += 1;
+    }
+
+    if (!code) throw new Error("Could not create a unique room code.");
+    saveRoom(code);
+    subscribe(code);
+  } catch (error) {
+    setError(friendlyError(error), error?.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#join-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const playerName = $("#join-name").value.trim();
+  const code = $("#join-code").value.trim().toUpperCase();
+  const button = event.submitter;
+  button.disabled = true;
+
+  try {
+    await joinRoom({ code, playerName });
+    saveRoom(code);
+    subscribe(code);
+  } catch (error) {
+    $("#home-error").textContent = friendlyError(error);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#share-room-button").addEventListener("click", async () => {
+  const url = `${location.origin}${location.pathname}?room=${state.roomCode}`;
+  try {
+    await navigator.share({ title: "Join Search Party", text: `Join room ${state.roomCode}`, url });
+  } catch {
+    await navigator.clipboard.writeText(`${state.roomCode} — ${url}`);
+    $("#lobby-status").textContent = "Invite copied to clipboard.";
+  }
+});
+
+$("#start-game-button").addEventListener("click", () =>
+  startGame(state.roomCode).catch(error => setError(friendlyError(error), error?.message))
+);
+
+$("#choice-list").addEventListener("click", async event => {
+  const button = event.target.closest("[data-choice]");
+  if (!button) return;
+
+  const choiceIndex = Number(button.dataset.choice);
+  state.selectedChoice = choiceIndex;
+  $$(".choice-button").forEach(choice =>
+    choice.classList.toggle("selected", Number(choice.dataset.choice) === choiceIndex)
+  );
+
+  try {
+    await submitAnswer(state.roomCode, state.room.roundIndex, choiceIndex);
+    $("#submitted-panel").classList.remove("hidden");
+  } catch (error) {
+    setError(friendlyError(error), error?.message);
+  }
+});
+
+$("#reveal-button").addEventListener("click", () => {
+  const question = currentQuestion();
+  if (!question) return;
+  revealRound(state.roomCode, state.room.roundIndex, question.correctIndex)
+    .catch(error => setError(friendlyError(error), error?.message));
+});
+
+$("#next-round-button").addEventListener("click", () =>
+  nextRound(state.roomCode, state.room.roundIndex, state.room.roundCount)
+    .catch(error => setError(friendlyError(error), error?.message))
+);
+
+$("#play-again-button").addEventListener("click", () =>
+  resetGame(state.roomCode).catch(error => setError(friendlyError(error), error?.message))
+);
+
+async function endRoom() {
+  try {
+    await deleteRoom(state.roomCode);
+    leaveRoom();
+  } catch (error) {
+    setError(friendlyError(error), error?.message);
+  }
+}
+$("#delete-room-button").addEventListener("click", endRoom);
+$("#finish-room-button").addEventListener("click", endRoom);
+
+window.addEventListener("online", () => $("#offline-banner").classList.add("hidden"));
+window.addEventListener("offline", () => $("#offline-banner").classList.remove("hidden"));
+
+(async function start() {
+  try {
+    $("#loading-text").textContent = "Signing in anonymously…";
+    await initializeFirebase();
+
+    const roomFromUrl = new URLSearchParams(location.search).get("room");
+    if (roomFromUrl && !state.roomCode) {
+      $("#join-code").value = roomFromUrl.toUpperCase();
+      $("#join-card").classList.remove("hidden");
+    }
+
+    $("#loading-text").textContent = "Ready.";
+    await restoreSavedRoom();
+  } catch (error) {
+    console.error("Search Party startup failed:", error);
+    setError(friendlyError(error), `${error?.code || ""}\n${error?.message || error}`);
+  }
+})();
